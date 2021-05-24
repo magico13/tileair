@@ -18,6 +18,12 @@ class Tile(object):
         #volume = 1 m^3
         if self.solid: return 0
         return self.num_moles * self.temp_K() * self.gas_constant
+
+    def set_moles(self, moles) -> None:
+        '''Sets the number of moles'''
+        if self.solid: return
+        if moles < 0: moles = 0
+        self.num_moles = moles
     
     def set_pressure(self, pressure) -> float:
         '''Sets the pressure by updating the number of moles'''

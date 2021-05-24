@@ -1,8 +1,9 @@
 import copy
 import math
+import threading
+import time
 
 import pygame
-from pygame.display import set_mode
 from pygame.locals import *
 
 from utils import Text, COLORS
@@ -62,6 +63,7 @@ def update_info(x, y):
     get_text('txt_info1').set_text(f'Pressure: {round(tile.get_pressure(), 2)} atm')
     get_text('txt_info2').set_text(f'Temp: {tile.temperature} C')
     get_text('txt_info3').set_text(f'Moles: {round(tile.num_moles, 2)}')
+    get_text('txt_fps').set_text(f'FPS: {round(clock.get_fps(),2)}')
 
 def handle_mouse(x, y, button):
     if button == 1 or button == 3:     
@@ -92,34 +94,51 @@ def move_air_to_neighbor(new_state, x, y, n_x, n_y, currentpressure=-1, num_neig
     if n_pressure < currentpressure:
         #some molecules move
         max_moles = tile.num_moles / (num_neighbors * 2)
-        diff = math.sqrt(2*abs(n_pressure - currentpressure))
+        diff = (abs(n_pressure - currentpressure))
         moved = min(max_moles * diff, max_moles)
         new_state[n_x][n_y].num_moles += moved
         new_state[x][y].num_moles -= moved
 
 def simulate():
     global Tiles
+    global SimulationActive
+    if not SimulationActive: return
     new_state = copy.deepcopy(Tiles)
-    for col in range(tiles_width):
-        for row in range(tiles_height):
-            tile = Tiles[col][row]
-            if tile.solid or tile.num_moles < 0.01: continue
-            currentpressure = Tiles[col][row].get_pressure()
-            neighbors = 0
-            if col - 1 > 0 and not Tiles[col-1][row].solid: neighbors += 1
-            if col + 1 < tiles_width and not Tiles[col+1][row].solid: neighbors += 1
-            if row - 1 > 0 and not Tiles[col][row-1].solid: neighbors += 1
-            if row + 1 < tiles_height and not Tiles[col][row+1].solid: neighbors += 1
-            #for each tile, check the pressure against the neighbors
-            #if the neighbor tiles have lower pressure, move some molecules over (at most 1/8?)
-            if col - 1 > 0: move_air_to_neighbor(new_state, col, row, col-1, row, currentpressure, neighbors)
-            if col + 1 < tiles_width: move_air_to_neighbor(new_state, col, row, col+1, row, currentpressure, neighbors)
-            if row - 1 > 0: move_air_to_neighbor(new_state, col, row, col, row-1, currentpressure, neighbors)
-            if row + 1 < tiles_height: move_air_to_neighbor(new_state, col, row, col, row+1, currentpressure, neighbors)
+    diff = 250
+    dt = 1/60
+    a = dt*diff
+    for k in range(2): #iterate to make sure it doesn't go crazy
+        for col in range(tiles_width):
+            for row in range(tiles_height):
+                tile = Tiles[col][row]
+                if tile.solid: continue
+                calc = 0
+                neighbors = 0
+                #need to account for walls somehow
+                #walls don't give/take any particles
+                #but if we say they have 0 moles then they eat particles
+                if col - 1 > 0 and not Tiles[col-1][row].solid:
+                    neighbors += 1
+                    calc += new_state[col-1][row].num_moles
+                if col + 1 < tiles_width and not Tiles[col+1][row].solid:
+                    neighbors += 1
+                    calc += new_state[col+1][row].num_moles
+                if row - 1 > 0 and not Tiles[col][row-1].solid:
+                    neighbors += 1
+                    calc += new_state[col][row-1].num_moles
+                if row + 1 < tiles_height and not Tiles[col][row+1].solid:
+                    neighbors += 1
+                    calc += new_state[col][row+1].num_moles
+                calc *= a
+                calc = (tile.num_moles + calc) / (1+neighbors*a)
+                new_state[col][row].set_moles(calc)
     #when done, the new_state becomes the current state
     Tiles = new_state
 
-                    
+def simulation_thread():
+    while True:
+        simulate()
+        time.sleep(0.001)
 
 def main():
     global SimulationActive
@@ -127,6 +146,10 @@ def main():
     Texts['txt_info1'] = Text('txt_info1', 'Pressure: 0 atm', (10, 40), height=25, color=COLORS.WHITE)
     Texts['txt_info2'] = Text('txt_info2', 'Temp: 0 C', (10, 60), height=25, color=COLORS.WHITE)
     Texts['txt_info3'] = Text('txt_info3', 'Moles: 0', (10, 80), height=25, color=COLORS.WHITE)
+    Texts['txt_fps'] = Text('txt_fps', 'FPS: 0', (10, 100), height=25, color=COLORS.WHITE)
+    dragging = False
+    # simThread = threading.Thread(target=simulation_thread, daemon=True)
+    # simThread.start()
     while True:
         if SimulationActive:
             simulate()
@@ -140,13 +163,23 @@ def main():
             if event.type == QUIT:
                 pygame.quit()
                 return
-            elif event.type == MOUSEBUTTONUP:
+            elif event.type == MOUSEBUTTONDOWN:
                 x = event.pos[0]
                 y = event.pos[1]
                 handle_mouse(x, y, event.button)
                 update_info(x, y)
+                dragging = True
+            elif event.type == MOUSEBUTTONUP:
+                dragging = False
             elif event.type == MOUSEMOTION:
-                update_info(event.pos[0], event.pos[1])
+                x = event.pos[0]
+                y = event.pos[1]
+                update_info(x, y)
+                if dragging:
+                    button = 0
+                    if event.buttons[0]: button = 1
+                    elif event.buttons[2]: button = 3
+                    handle_mouse(x, y, button)
             elif event.type == KEYUP:
                 if event.key == K_1:
                     update_mode(0)
