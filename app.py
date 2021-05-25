@@ -3,6 +3,7 @@ import math
 import threading
 import time
 
+import numpy as np
 import pygame
 from pygame.locals import *
 
@@ -24,7 +25,7 @@ for col in range(tiles_width):
     column = []
     Tiles.append(column)
     for row in range(tiles_height):
-        column.append(Tile(0))
+        column.append(Tile(0, nmol=4.16))
 
 
 pygame.init()
@@ -103,11 +104,20 @@ def simulate():
     global Tiles
     global SimulationActive
     if not SimulationActive: return
-    new_state = copy.deepcopy(Tiles)
+    t_start = time.perf_counter()
+    #new_state = copy.deepcopy(Tiles)
+    # new_state = np.zeros(tiles_width*tiles_height)
+    new_state = [0] * tiles_width * tiles_height #somehow faster to access
+    for i in range(tiles_width*tiles_height):
+        col = i % tiles_width
+        row = int(i / tiles_width)
+        new_state[i] = Tiles[col][row].num_moles
+    t_copy = time.perf_counter()
     diff = 250
     dt = 1/60
     a = dt*diff
-    for k in range(2): #iterate to make sure it doesn't go crazy
+    iterations = 10
+    for k in range(iterations): #iterate to make sure it doesn't go crazy
         for col in range(tiles_width):
             for row in range(tiles_height):
                 tile = Tiles[col][row]
@@ -119,21 +129,29 @@ def simulate():
                 #but if we say they have 0 moles then they eat particles
                 if col - 1 > 0 and not Tiles[col-1][row].solid:
                     neighbors += 1
-                    calc += new_state[col-1][row].num_moles
+                    calc += new_state[col-1 + row*tiles_width]
                 if col + 1 < tiles_width and not Tiles[col+1][row].solid:
                     neighbors += 1
-                    calc += new_state[col+1][row].num_moles
+                    calc += new_state[col+1 + row*tiles_width]
                 if row - 1 > 0 and not Tiles[col][row-1].solid:
                     neighbors += 1
-                    calc += new_state[col][row-1].num_moles
+                    calc += new_state[col + (row-1)*tiles_width]
                 if row + 1 < tiles_height and not Tiles[col][row+1].solid:
                     neighbors += 1
-                    calc += new_state[col][row+1].num_moles
+                    calc += new_state[col + (row+1)*tiles_width]
+                if not calc: continue
                 calc *= a
                 calc = (tile.num_moles + calc) / (1+neighbors*a)
-                new_state[col][row].set_moles(calc)
+                new_state[col + row*tiles_width] = calc
+    t_calc = time.perf_counter()
     #when done, the new_state becomes the current state
-    Tiles = new_state
+    for i in range(tiles_width*tiles_height):
+        col = i % tiles_width
+        row = int(i / tiles_width)
+        Tiles[col][row].set_moles(new_state[i])
+    t_done = time.perf_counter()
+    print(f'Copy: {t_copy-t_start} Calc: {t_calc-t_copy} Finish: {t_done-t_calc} Total: {t_done-t_start}')
+
 
 def simulation_thread():
     while True:
