@@ -4,6 +4,7 @@ import threading
 import time
 
 import numpy as np
+from joblib import Parallel, delayed
 import pygame
 from pygame.locals import *
 
@@ -85,24 +86,38 @@ def handle_mouse(x, y, button):
                     currentTile.set_pressure(pressure-0.1)
             #add air molecules to the selected tile
 
-def move_air_to_neighbor(new_state, x, y, n_x, n_y, currentpressure=-1, num_neighbors=4):
-    neighbor = Tiles[n_x][n_y]
-    if neighbor.solid: return
-    tile = Tiles[x][y]
-    if currentpressure < 0:
-        currentpressure = tile.get_pressure()
-    n_pressure = neighbor.get_pressure()
-    if n_pressure < currentpressure:
-        #some molecules move
-        max_moles = tile.num_moles / (num_neighbors * 2)
-        diff = (abs(n_pressure - currentpressure))
-        moved = min(max_moles * diff, max_moles)
-        new_state[n_x][n_y].num_moles += moved
-        new_state[x][y].num_moles -= moved
+def one_iteration(a, new_state):
+    # parallel(delayed(one_column)(col, a, new_state) for col in range(tiles_width))
+    # Parallel(n_jobs=2, require='sharedmem') (delayed(one_column)(col, a, new_state) for col in range(tiles_width))
+    for col in range(tiles_width):
+        one_column(col, a, new_state)
+
+def one_column(col, a, new_state):
+    for row in range(tiles_height):
+        tile = Tiles[col][row]
+        if tile.solid: continue
+        calc = 0
+        neighbors = 0
+        if col - 1 > 0 and not Tiles[col-1][row].solid:
+            neighbors += 1
+            calc += new_state[col-1 + row*tiles_width]
+        if col + 1 < tiles_width and not Tiles[col+1][row].solid:
+            neighbors += 1
+            calc += new_state[col+1 + row*tiles_width]
+        if row - 1 > 0 and not Tiles[col][row-1].solid:
+            neighbors += 1
+            calc += new_state[col + (row-1)*tiles_width]
+        if row + 1 < tiles_height and not Tiles[col][row+1].solid:
+            neighbors += 1
+            calc += new_state[col + (row+1)*tiles_width]
+        if not neighbors: 
+            new_state[col + row*tiles_width] = tile.num_moles
+            continue    
+        calc *= a
+        calc = (tile.num_moles + calc) / (1+neighbors*a)
+        new_state[col + row*tiles_width] = calc
 
 def simulate():
-    global Tiles
-    global SimulationActive
     if not SimulationActive: return
     t_start = time.perf_counter()
     #new_state = copy.deepcopy(Tiles)
@@ -114,35 +129,12 @@ def simulate():
         new_state[i] = Tiles[col][row].num_moles
     t_copy = time.perf_counter()
     diff = 250
-    dt = 1/60
+    dt = 1/30
     a = dt*diff
     iterations = 10
+    # with Parallel(n_jobs=2, require='sharedmem') as parallel:
     for k in range(iterations): #iterate to make sure it doesn't go crazy
-        for col in range(tiles_width):
-            for row in range(tiles_height):
-                tile = Tiles[col][row]
-                if tile.solid: continue
-                calc = 0
-                neighbors = 0
-                #need to account for walls somehow
-                #walls don't give/take any particles
-                #but if we say they have 0 moles then they eat particles
-                if col - 1 > 0 and not Tiles[col-1][row].solid:
-                    neighbors += 1
-                    calc += new_state[col-1 + row*tiles_width]
-                if col + 1 < tiles_width and not Tiles[col+1][row].solid:
-                    neighbors += 1
-                    calc += new_state[col+1 + row*tiles_width]
-                if row - 1 > 0 and not Tiles[col][row-1].solid:
-                    neighbors += 1
-                    calc += new_state[col + (row-1)*tiles_width]
-                if row + 1 < tiles_height and not Tiles[col][row+1].solid:
-                    neighbors += 1
-                    calc += new_state[col + (row+1)*tiles_width]
-                if not calc: continue
-                calc *= a
-                calc = (tile.num_moles + calc) / (1+neighbors*a)
-                new_state[col + row*tiles_width] = calc
+        one_iteration(a, new_state)
     t_calc = time.perf_counter()
     #when done, the new_state becomes the current state
     for i in range(tiles_width*tiles_height):
@@ -168,15 +160,20 @@ def main():
     dragging = False
     # simThread = threading.Thread(target=simulation_thread, daemon=True)
     # simThread.start()
+    counter = 0
     while True:
+        counter += 1
+        t_start = time.perf_counter()
         if SimulationActive:
             simulate()
             pos = pygame.mouse.get_pos()
             update_info(pos[0], pos[1])
+        t_simulate = time.perf_counter()
         draw_tiles(display)
         for _, text in Texts.items():
             text.draw(display)
         pygame.display.update()
+        t_draw = time.perf_counter()
         for event in pygame.event.get():
             if event.type == QUIT:
                 pygame.quit()
@@ -207,7 +204,12 @@ def main():
                     SimulationActive = not SimulationActive
 
             # print(event)
-        clock.tick(60)
+        t_event = time.perf_counter()
+        clock.tick(30)
+        t_final = time.perf_counter()
+        if counter >= 10:
+            print(f'Sim: {t_simulate-t_start} Draw: {t_draw-t_simulate} Event: {t_event-t_draw} Tick: {t_final-t_event} Total: {t_final-t_start}')
+            counter = 0
 
 main()
 print('done')
