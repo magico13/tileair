@@ -26,7 +26,7 @@ for col in range(tiles_width):
     column = []
     Tiles.append(column)
     for row in range(tiles_height):
-        column.append(Tile(0, nmol=4.16))
+        column.append(Tile(0, nmol=0)) #nmol=4.16
 
 
 pygame.init()
@@ -39,15 +39,20 @@ def get_text(name):
     return None
 
 def draw_tiles(display):
-    for col in range(tiles_width):
-        for row in range(tiles_height):
+    col = -1
+    while col < tiles_width-1:
+        col += 1
+        row = -1
+        while row < tiles_height-1:
+            row += 1
             tile = Tiles[col][row]
             if tile.tile_id == 1:
                 display.fill(COLORS.GREEN, Rect(col*TileSize, row*TileSize, TileSize, TileSize))
             else:
                 p = tile.get_pressure()
                 fill = int(min(255, 255*math.sqrt(p)))
-                display.fill(Color(0, fill, fill), Rect(col*TileSize, row*TileSize, TileSize, TileSize))
+                fill_g = int(max(min(fill, 51*(5-p)), 0))
+                display.fill(Color(0, fill_g, fill), Rect(col*TileSize, row*TileSize, TileSize, TileSize))
 
 def update_mode(mode):
     txt = get_text('txt_mode')
@@ -80,10 +85,11 @@ def handle_mouse(x, y, button):
             currentTile = Tiles[scaledx][scaledy]
             if not currentTile.solid:
                 pressure = currentTile.get_pressure()
+                delta = 0.5
                 if button == 1:
-                    currentTile.set_pressure(pressure+0.1)
+                    currentTile.set_pressure(pressure+delta)
                 elif button == 3:
-                    currentTile.set_pressure(pressure-0.1)
+                    currentTile.set_pressure(pressure-delta)
             #add air molecules to the selected tile
 
 def one_iteration(a, new_state):
@@ -112,7 +118,7 @@ def one_column(col, a, new_state):
             calc += new_state[col + (row+1)*tiles_width]
         if not neighbors: 
             new_state[col + row*tiles_width] = tile.num_moles
-            continue    
+            continue
         calc *= a
         calc = (tile.num_moles + calc) / (1+neighbors*a)
         new_state[col + row*tiles_width] = calc
@@ -140,7 +146,9 @@ def simulate():
     for i in range(tiles_width*tiles_height):
         col = i % tiles_width
         row = int(i / tiles_width)
-        Tiles[col][row].set_moles(new_state[i])
+        m = new_state[i]
+        if m < 0.05: m = 0
+        Tiles[col][row].set_moles(m)
     t_done = time.perf_counter()
     print(f'Copy: {t_copy-t_start} Calc: {t_calc-t_copy} Finish: {t_done-t_calc} Total: {t_done-t_start}')
 
@@ -158,14 +166,14 @@ def main():
     Texts['txt_info3'] = Text('txt_info3', 'Moles: 0', (10, 80), height=25, color=COLORS.WHITE)
     Texts['txt_fps'] = Text('txt_fps', 'FPS: 0', (10, 100), height=25, color=COLORS.WHITE)
     dragging = False
-    # simThread = threading.Thread(target=simulation_thread, daemon=True)
-    # simThread.start()
+    simThread = threading.Thread(target=simulation_thread, daemon=True)
+    simThread.start()
     counter = 0
     while True:
         counter += 1
         t_start = time.perf_counter()
         if SimulationActive:
-            simulate()
+            # simulate()
             pos = pygame.mouse.get_pos()
             update_info(pos[0], pos[1])
         t_simulate = time.perf_counter()
